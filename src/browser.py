@@ -1,12 +1,13 @@
-import asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from .config import load_config, save_config
 
 
 class BrowserController:
     def __init__(self, user_data_dir: str = "./browser_data", headless: bool = False):
         self.user_data_dir = Path(user_data_dir)
         self.headless = headless
+        self.config = load_config()
         self._playwright = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -15,12 +16,14 @@ class BrowserController:
     async def start(self) -> Page:
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
 
+        cfg = self.config
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(self.user_data_dir),
             headless=self.headless,
-            viewport={"width": 1280, "height": 900},
+            viewport=None,  # Отключаем фиксированный viewport
             locale="ru-RU",
+            args=["--disable-infobars"],
         )
 
         self._page = (
@@ -28,7 +31,52 @@ class BrowserController:
             if self._context.pages
             else await self._context.new_page()
         )
+
+        # Устанавливаем позицию и размер окна через CDP
+        cdp = await self._context.new_cdp_session(self._page)
+        window_info = await cdp.send("Browser.getWindowForTarget")
+        await cdp.send(
+            "Browser.setWindowBounds",
+            {
+                "windowId": window_info["windowId"],
+                "bounds": {
+                    "left": cfg["window_x"],
+                    "top": cfg["window_y"],
+                    "width": cfg["window_width"],
+                    "height": cfg["window_height"],
+                },
+            },
+        )
+
         return self._page
+
+    async def save_window_position(self) -> str:
+        """Сохраняет текущую позицию и размер окна браузера."""
+        js_code = """
+        () => ({
+            x: window.screenX,
+            y: window.screenY,
+            width: window.outerWidth,
+            height: window.outerHeight,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight
+        })
+        """
+        pos = await self.page.evaluate(js_code)
+
+        self.config.update(
+            {
+                "window_x": pos["x"],
+                "window_y": pos["y"],
+                "window_width": pos["width"],
+                "window_height": pos["height"],
+                "viewport_width": pos["viewportWidth"],
+                "viewport_height": pos["viewportHeight"],
+            }
+        )
+        save_config(self.config)
+
+        return f"Сохранено: позиция ({pos['x']}, {pos['y']}), размер {pos['width']}x{pos['height']}"
 
     @property
     def page(self) -> Page:

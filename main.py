@@ -25,7 +25,8 @@ async def main():
     console.print(
         Panel.fit(
             "[bold cyan]🤖 AI Browser Agent[/]\n"
-            "Введите задачу для выполнения или 'exit' для выхода",
+            "Введите задачу или 'exit' для выхода\n"
+            "[dim]/save-window - сохранить позицию окна браузера[/]",
             border_style="cyan",
         )
     )
@@ -47,6 +48,11 @@ async def main():
 
                 if task.lower() in ("exit", "quit", "выход"):
                     break
+
+                if task.lower() == "/save-window":
+                    result = await browser.save_window_position()
+                    console.print(f"[green]✓ {result}[/]\n")
+                    continue
 
                 await agent.run(task)
                 console.print("\n" + "─" * 50 + "\n")
